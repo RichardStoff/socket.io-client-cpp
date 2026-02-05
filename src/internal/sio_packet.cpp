@@ -170,8 +170,10 @@ namespace sio
             {
                 if(it->name.IsString())
                 {
-                    string key(it->name.GetString(),it->name.GetStringLength());
-                    static_cast<object_message*>(ptr.get())->get_map()[key] = from_json(it->value,buffers);
+                    message::ptr tmp = from_json(it->value, buffers);
+                    if (!tmp) continue; // will cause crash in READ_SIO_* w/o check
+                    string key(it->name.GetString(), it->name.GetStringLength());
+                    static_cast<object_message*>(ptr.get())->get_map()[key] = tmp;
                 }
             }
             return ptr;
