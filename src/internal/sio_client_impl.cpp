@@ -394,6 +394,27 @@ namespace sio
 
     void client_impl::send_impl(shared_ptr<const string> const& payload_ptr,frame::opcode::value opcode)
     {
+#ifdef _SAL_TIME_H
+        // Every operation on the websocketpp connection must run on the single
+        // socket-queue thread that also drives inbound frame handling — the
+        // connection is NOT internally locked. The previous fix serialized
+        // close/teardown there, but writes were left inline: emit*() runs on an
+        // app thread and the ping runs on the timer thread, so m_client.send()
+        // here could execute concurrently with SocketQueueKpoll inside
+        // handle_read_frame on the same connection. That data race corrupts the
+        // heap and crashes in sio::packet_manager::put_payload on the read side
+        // (ON-1531, EXC_BAD_ACCESS with an inbound-payload byte pattern in the
+        // faulting pointer). Hop the write onto the socket-queue thread; Post()
+        // runs inline when we're already on it (handshake sends from on_open),
+        // so the common path keeps zero extra latency.
+        if (!SAL::MSocketQueueManager::IsOnQueueThread())
+        {
+            SAL::MSocketQueueManager::Post([this, payload_ptr, opcode]() {
+                this->send_impl(payload_ptr, opcode);
+            });
+            return;
+        }
+#endif
         if(m_con_state == con_opened)
         {
             lib::error_code ec;
